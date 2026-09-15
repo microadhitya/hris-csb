@@ -1,0 +1,189 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  KARYAWAN
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+  RESIGNED
+}
+
+enum AttendanceStatus {
+  HADIR
+  TERLAMBAT
+  ALPHA
+  IZIN
+  SAKIT
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum LeaveType {
+  CUTI_TAHUNAN
+  SAKIT
+  IZIN
+  MELAHIRKAN
+  MENIKAH
+  LAINNYA
+}
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String   @map("password_hash")
+  role          UserRole @default(KARYAWAN)
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  employee      Employee?
+
+  @@map("users")
+}
+
+model Branch {
+  id            String   @id @default(uuid())
+  name          String
+  address       String?
+  latitude      Decimal  @db.Decimal(10, 8)
+  longitude     Decimal  @db.Decimal(11, 8)
+  radiusMeters  Int      @default(100) @map("radius_meters")
+  workStart     String   @default("08:00") @map("work_start")
+  workEnd       String   @default("17:00") @map("work_end")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  employees     Employee[]
+  schedules     Schedule[]
+
+  @@map("branches")
+}
+
+model Employee {
+  id            String         @id @default(uuid())
+  userId        String         @unique @map("user_id")
+  employeeId    String         @unique @map("employee_id")
+  fullName      String         @map("full_name")
+  phone         String?
+  position      String?
+  joinDate      DateTime       @map("join_date")
+  salary        Decimal?       @db.Decimal(15, 2)
+  status        EmployeeStatus @default(ACTIVE)
+  branchId      String?        @map("branch_id")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch        Branch?        @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  attendances   Attendance[]
+  schedules     Schedule[]
+  faceData      FaceData?
+  leaveRequests LeaveRequest[]
+  approvals     Approval[]
+
+  @@map("employees")
+}
+
+model FaceData {
+  id            String   @id @default(uuid())
+  employeeId    String   @unique @map("employee_id")
+  embeddings    Json     // Array of 128-dim vectors
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  employee      Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("face_data")
+}
+
+model Attendance {
+  id            String           @id @default(uuid())
+  employeeId    String           @map("employee_id")
+  date          DateTime         @db.Date
+  checkIn       DateTime?        @map("check_in")
+  checkOut      DateTime?        @map("check_out")
+  selfieIn      String?          @map("selfie_in")
+  selfieOut     String?          @map("selfie_out")
+  gpsLatIn      Decimal?         @db.Decimal(10, 8) @map("gps_lat_in")
+  gpsLngIn      Decimal?         @db.Decimal(11, 8) @map("gps_lng_in")
+  gpsLatOut     Decimal?         @db.Decimal(10, 8) @map("gps_lat_out")
+  gpsLngOut     Decimal?         @db.Decimal(11, 8) @map("gps_lng_out")
+  faceScore     Decimal?         @db.Decimal(5, 4) @map("face_score")
+  status        AttendanceStatus @default(HADIR)
+  isManual      Boolean          @default(false) @map("is_manual")
+  notes         String?
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  employee      Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, date])
+  @@map("attendances")
+}
+
+model Schedule {
+  id            String   @id @default(uuid())
+  employeeId    String   @map("employee_id")
+  date          DateTime @db.Date
+  startTime     String   @map("start_time")
+  endTime       String   @map("end_time")
+  branchId      String?  @map("branch_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  employee      Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  branch        Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@unique([employeeId, date])
+  @@map("schedules")
+}
+
+model LeaveRequest {
+  id            String     @id @default(uuid())
+  employeeId    String     @map("employee_id")
+  type          LeaveType
+  startDate     DateTime   @map("start_date")
+  endDate       DateTime   @map("end_date")
+  reason        String?
+  status        ApprovalStatus @default(PENDING)
+  approvedBy    String?    @map("approved_by")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  employee      Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("leave_requests")
+}
+
+model Approval {
+  id            String         @id @default(uuid())
+  employeeId    String         @map("employee_id")
+  type          String         // OUT_OF_RADIUS, FACE_RECOGNITION_FAILED
+  attendanceDate DateTime      @map("attendance_date")
+  photoUrl      String?        @map("photo_url")
+  gpsLat        Decimal?       @db.Decimal(10, 8)
+  gpsLng        Decimal?       @db.Decimal(11, 8)
+  reason        String?
+  status        ApprovalStatus @default(PENDING)
+  adminNotes    String?        @map("admin_notes")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  employee      Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("approvals")
+}
